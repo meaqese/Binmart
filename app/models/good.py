@@ -19,4 +19,4 @@ class Good(Base):
     price = Column(Integer)
     data = Column(Text)
 
-    tags = relationship('Tag', secondary=association_table)
+    tags = relationship('Tag', secondary=association_table, backref='goods')

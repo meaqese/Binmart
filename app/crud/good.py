@@ -4,8 +4,20 @@ from app.models.tag import Tag
 from app import schemas
 
 
-def get_goods(db: Session):
+def get_goods(db: Session, tags: list = None):
+    if tags:
+        tags_filtered = db.query(Tag).filter(Tag.name.in_(tags)).all()
+
+        goods_filtered = []
+        for tag in tags_filtered:
+            goods_filtered.extend(tag.goods)
+
+        return set(goods_filtered)
     return db.query(Good).all()
+
+
+def get_tags(db: Session):
+    return db.query(Tag).all()
 
 
 def get_good_by_id(db: Session, good_id: int):
@@ -31,7 +43,7 @@ def delete_good(db: Session, good_id: int):
     db.delete(good_in_db)
     db.commit()
 
-    return good_id
+    return good_in_db
 
 
 

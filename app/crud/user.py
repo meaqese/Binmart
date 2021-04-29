@@ -26,3 +26,17 @@ def change_balance(db: Session, username: str, balance: int):
     except Exception:
         db.rollback()
     return False
+
+
+def top_balance(db: Session, username: str, amount: int):
+    user_in_db = db.query(User).filter_by(username=username).first()
+
+    try:
+        user_in_db.balance += amount
+        db.commit()
+
+        return True
+    except Exception:
+        db.rollback()
+    return False
+

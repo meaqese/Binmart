@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Form, Response
+from fastapi import APIRouter, Depends, Query, Response
+from typing import Optional, List
 from json import loads
 from sqlalchemy.orm import Session
 from fastapi_jwt_auth import AuthJWT
@@ -9,27 +10,54 @@ from app import schemas
 router = APIRouter()
 
 
+def good_to_dict(good):
+    return {
+        'id': good.id, 'author_id': good.author_id, 'name': good.name, 'price': good.price,
+        'tags': good.tags
+    }
+
+
 @router.get('/goods')
-def goods(db: Session = Depends(get_db)):
-    return [
-        {column.name: getattr(good, column.name) for column in good.__table__.columns}
-        for good in crud.get_goods(db)
-    ]
+def goods(tags: Optional[List] = Query(None), db: Session = Depends(get_db)):
+    goods_in_db = crud.get_goods(db, tags)
+
+    return [good_to_dict(good) for good in goods_in_db]
+
+
+@router.get('/my-goods')
+def my_goods(db: Session = Depends(get_db), authorize: AuthJWT = Depends()):
+    authorize.jwt_required()
+
+    user = loads(authorize.get_jwt_subject())
+    goods_in_db = crud.get_user(db, user['username']).goods
+
+    return [good_to_dict(good) for good in goods_in_db]
+
+
+@router.get('/tags')
+def get_tags(db: Session = Depends(get_db)):
+    return crud.get_tags(db)
 
 
 @router.post('/good')
-def create_new_good(db: Session = Depends(get_db), name: str = Form(...), price: str = Form(...),
-                    data: str = Form(...), tags: list = Form(...), authorize: AuthJWT = Depends()):
+def create_new_good(
+    good: schemas.GoodBase,
+    db: Session = Depends(get_db),
+    authorize: AuthJWT = Depends()
+):
     authorize.jwt_required()
 
     user_data = loads(authorize.get_jwt_subject())
     author_id = user_data['id']
 
-    new_good = schemas.GoodCreate(author_id=author_id, name=name, price=price, data=data, tags=tags)
+    new_good = schemas.GoodCreate(author_id=author_id, name=good.name, price=good.price,
+                                  data=good.data, tags=good.tags)
     created = crud.create_good(db, new_good)
 
     response = new_good.dict().copy()
     response['id'] = created.id
+    response['tags'] = created.tags
+    del response['data']
 
     return response
 
@@ -46,6 +74,7 @@ def buy(good_id: int, response: Response,
 
     if good and user_in_db.balance >= good.price:
         buying = crud.change_balance(db, user_in_db.username, user_in_db.balance - good.price)
+        crud.top_balance(db, good.author.username, good.price)
         if buying:
             crud.delete_good(db, good.id)
             return {'data': good.data}
@@ -53,8 +82,16 @@ def buy(good_id: int, response: Response,
     return {'success': False, 'reason': 'Good price is more than balance'}
 
 
-@router.delete('/good')
-def delete_good(good_id: int, db: Session = Depends(get_db)):
-    return crud.delete_good(db, good_id)
+@router.delete('/good/{good_id}')
+def delete_good(good_id: int, db: Session = Depends(get_db), authorize: AuthJWT = Depends()):
+    authorize.jwt_required()
 
+    user = loads(authorize.get_jwt_subject())
 
+    user_in_db = crud.get_user(db, user['username'])
+    good = crud.get_good_by_id(db, good_id)
+
+    if good.author_id == user_in_db.id:
+        deleted = crud.delete_good(db, good_id)
+        return good_to_dict(deleted)
+    return {'success': False, 'reason': 'Haven\'t permissions for delete this good'}
